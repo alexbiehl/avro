@@ -120,9 +120,9 @@ containerHeaderWithCodecAndSync (codec, compress) sch syncBytes =
 -- |Encode chunks of objects into a container, using the provided
 -- ByteString as the synchronization markers.
 encodeContainerWithSync :: EncodeAvro a => Codec -> Schema -> BL.ByteString -> [[a]] -> BL.ByteString
-encodeContainerWithSync (_, compress) sch syncBytes xss =
+encodeContainerWithSync codec@(_, compress) sch syncBytes xss =
  toLazyByteString $
-  containerHeaderWithSync sch syncBytes <>
+  containerHeaderWithCodecAndSync codec sch syncBytes <>
   foldMap putBlocks xss
  where
   putBlocks ys =
