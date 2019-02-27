@@ -29,7 +29,7 @@ module Data.Avro.Encode
   , putAvro
   ) where
 
-import qualified "zlib" Codec.Compression.Zlib as Z
+import qualified "zlib" Codec.Compression.Zlib.Internal as Z
 import qualified Data.Aeson                    as A
 import qualified Data.Array                    as Ar
 import qualified Data.Binary.IEEE754           as IEEE
@@ -93,7 +93,7 @@ nullCodec =
 
 deflateCodec :: Codec
 deflateCodec =
-  ("deflate", Z.compress)
+  ("deflate", Z.compress Z.rawFormat Z.defaultCompressParams)
 
 -- | Creates an Avro container header for a given schema.
 containerHeaderWithSync :: Schema -> BL.ByteString -> Builder
