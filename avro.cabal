@@ -103,6 +103,7 @@ library
     , tf-random
     , unordered-containers
     , vector
+    , zlib
   if flag(templatehaskell)
     other-extensions: TemplateHaskell
     build-depends:

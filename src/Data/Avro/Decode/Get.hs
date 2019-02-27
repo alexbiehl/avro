@@ -1,12 +1,13 @@
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE MultiWayIf          #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE PackageImports      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Data.Avro.Decode.Get
 where
 
-import qualified Codec.Compression.Zlib     as Z
+import qualified "pure-zlib" Codec.Compression.Zlib     as Z
 import           Control.Monad              (foldM, replicateM, when)
 import qualified Data.Aeson                 as A
 import qualified Data.Array                 as Array
@@ -151,7 +152,7 @@ getString = do
   bytes <- getBytes
   case Text.decodeUtf8' bytes of
     Left unicodeExc -> fail (show unicodeExc)
-    Right text -> return text
+    Right text      -> return text
 
 -- a la Java:
 --  Bit 31 (the bit that is selected by the mask 0x80000000) represents the

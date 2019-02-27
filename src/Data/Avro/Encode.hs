@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE OverloadedStrings    #-}
+{-# LANGUAGE PackageImports       #-}
 {-# LANGUAGE RecordWildCards      #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE TypeFamilies         #-}
@@ -18,50 +19,55 @@ module Data.Avro.Encode
   , packContainerBlocksWithSync
   , packContainerValues
   , packContainerValuesWithSync
+  -- * Codec
+  , Codec
+  , nullCodec
+  , deflateCodec
   -- * Lower level interface
   , EncodeAvro(..)
   , Zag(..)
   , putAvro
   ) where
 
-import qualified Data.Aeson                 as A
-import qualified Data.Array                 as Ar
-import qualified Data.Binary.IEEE754        as IEEE
+import qualified "zlib" Codec.Compression.Zlib as Z
+import qualified Data.Aeson                    as A
+import qualified Data.Array                    as Ar
+import qualified Data.Binary.IEEE754           as IEEE
 import           Data.Bits
-import qualified Data.ByteString            as B
+import qualified Data.ByteString               as B
 import           Data.ByteString.Builder
-import           Data.ByteString.Lazy       as BL
-import           Data.ByteString.Lazy.Char8 ()
-import qualified Data.Foldable              as F
-import           Data.HashMap.Strict        (HashMap)
-import qualified Data.HashMap.Strict        as HashMap
+import           Data.ByteString.Lazy          as BL
+import           Data.ByteString.Lazy.Char8    ()
+import qualified Data.Foldable                 as F
+import           Data.HashMap.Strict           (HashMap)
+import qualified Data.HashMap.Strict           as HashMap
 import           Data.Int
-import           Data.Ix                    (Ix)
-import           Data.List                  as DL
-import           Data.List.NonEmpty         (NonEmpty (..))
-import qualified Data.List.NonEmpty         as NE
-import           Data.Maybe                 (catMaybes, mapMaybe)
+import           Data.Ix                       (Ix)
+import           Data.List                     as DL
+import           Data.List.NonEmpty            (NonEmpty (..))
+import qualified Data.List.NonEmpty            as NE
+import           Data.Maybe                    (catMaybes, mapMaybe)
 import           Data.Monoid
 import           Data.Proxy
-import qualified Data.Set                   as S
-import           Data.Text                  (Text)
-import qualified Data.Text                  as T
-import qualified Data.Text.Encoding         as T
-import qualified Data.Text.Lazy             as TL
-import qualified Data.Text.Lazy.Encoding    as TL
-import qualified Data.Vector                as V
-import qualified Data.Vector.Unboxed        as U
+import qualified Data.Set                      as S
+import           Data.Text                     (Text)
+import qualified Data.Text                     as T
+import qualified Data.Text.Encoding            as T
+import qualified Data.Text.Lazy                as TL
+import qualified Data.Text.Lazy.Encoding       as TL
+import qualified Data.Vector                   as V
+import qualified Data.Vector.Unboxed           as U
 import           Data.Word
-import           System.Random.TF.Init      (initTFGen)
-import           System.Random.TF.Instances (randoms)
-import           Prelude                    as P
+import           Prelude                       as P
+import           System.Random.TF.Init         (initTFGen)
+import           System.Random.TF.Instances    (randoms)
 
-import Data.Avro.EncodeRaw
-import Data.Avro.HasAvroSchema
-import Data.Avro.Schema        as S
-import Data.Avro.Types         as T
-import Data.Avro.Zag
-import Data.Avro.Zig
+import           Data.Avro.EncodeRaw
+import           Data.Avro.HasAvroSchema
+import           Data.Avro.Schema              as S
+import           Data.Avro.Types               as T
+import           Data.Avro.Zag
+import           Data.Avro.Zig
 
 encodeAvro :: EncodeAvro a => a -> BL.ByteString
 encodeAvro = toLazyByteString . putAvro
@@ -75,22 +81,46 @@ newSyncBytes = BL.pack . DL.take 16 . randoms <$> initTFGen
 encodeContainer :: EncodeAvro a => Schema -> [[a]] -> IO BL.ByteString
 encodeContainer sch xss =
   do sync <- newSyncBytes
-     return $ encodeContainerWithSync sch sync xss
+     return $ encodeContainerWithSync nullCodec sch sync xss
+
+
+type Codec =
+  (BL.ByteString, BL.ByteString -> BL.ByteString)
+
+nullCodec :: Codec
+nullCodec =
+  ("null", id)
+
+deflateCodec :: Codec
+deflateCodec =
+  ("deflate", Z.compress)
 
 -- | Creates an Avro container header for a given schema.
 containerHeaderWithSync :: Schema -> BL.ByteString -> Builder
-containerHeaderWithSync sch syncBytes =
-  lazyByteString avroMagicBytes <>
-  putAvro (HashMap.fromList [("avro.schema", A.encode sch), ("avro.codec","null")] :: HashMap Text BL.ByteString) <>
-  lazyByteString syncBytes
+containerHeaderWithSync schema input =
+  containerHeaderWithCodecAndSync nullCodec schema input
+
+-- | Creates an Avro container header for a given codec and schema.
+containerHeaderWithCodecAndSync :: Codec -> Schema -> BL.ByteString -> Builder
+containerHeaderWithCodecAndSync (codec, compress) sch syncBytes =
+  let
+    headers :: HashMap Text BL.ByteString
+    headers =
+      HashMap.fromList
+        [
+          ("avro.schema", A.encode sch)
+        , ("avro.codec", codec)
+        ]
+  in
+    lazyByteString avroMagicBytes <> putAvro headers <> lazyByteString syncBytes
   where
     avroMagicBytes :: BL.ByteString
     avroMagicBytes = "Obj" <> BL.pack [1]
 
 -- |Encode chunks of objects into a container, using the provided
 -- ByteString as the synchronization markers.
-encodeContainerWithSync :: EncodeAvro a => Schema -> BL.ByteString -> [[a]] -> BL.ByteString
-encodeContainerWithSync sch syncBytes xss =
+encodeContainerWithSync :: EncodeAvro a => Codec -> Schema -> BL.ByteString -> [[a]] -> BL.ByteString
+encodeContainerWithSync (_, compress) sch syncBytes xss =
  toLazyByteString $
   containerHeaderWithSync sch syncBytes <>
   foldMap putBlocks xss
@@ -98,7 +128,7 @@ encodeContainerWithSync sch syncBytes xss =
   putBlocks ys =
     let nrObj    = P.length ys
         nrBytes  = BL.length theBytes
-        theBytes = toLazyByteString $ foldMap putAvro ys
+        theBytes = compress $ toLazyByteString $ foldMap putAvro ys
     in putAvro nrObj <>
        putAvro nrBytes <>
        lazyByteString theBytes <>

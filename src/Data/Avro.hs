@@ -179,7 +179,7 @@ encodeContainerWithSync (a,b,c,d) =
   let
     sch = untag (schema :: Tagged a Schema)
     syncBytes = P.runPut $ mapM_ P.putWord64le [a,b,c,d]
-  in E.encodeContainerWithSync sch syncBytes . map (map toAvro)
+  in E.encodeContainerWithSync E.nullCodec sch syncBytes . map (map toAvro)
 
 -- |Like 'decodeContainer' but returns the avro-encoded bytes for each
 -- object in the container instead of the Haskell type.
